@@ -1,0 +1,29 @@
+jobs:
+  checkdb:
+    runs-on: ubuntu-latest
+    name: ${{ inputs.database-name }} database check
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    - name: get current date
+      id: date
+      run: echo "date=$(date +'%Y-%m-%d')T00:00:00" >> $GITHUB_OUTPUT
+
+    - name: login
+      # "SqlMI Migration Role" permission is required on prod(manually one time) to restore on lower environment
+      run: az login --service-principal -u ${{ secrets.AZ_CLIENT_ID }} -p ${{ secrets.AZ_CLIENT_SECRET }} --tenant 05d75c05-fa1a-42e7-9cf1-eb416c396f2d
+
+    - name: delete ${{ inputs.database-name }}_prod db if exists
+      run: sqlcmd -S ${{ inputs.destination-server-name }} -d master -U ${{ secrets.ROCK_DB_USER }} -P '${{ secrets.ROCK_DB_PASSWORD }}' -t 120 -Q 'drop database if exists ${{ inputs.database-name }}_prod'
+
+    - name: restore prod ${{ inputs.database-name }} db to test
+      run: az sql midb restore -g rgpazewpmlit-ddfo-rock-001 --mi sqlazewpddforock001 -n ${{ inputs.database-name }} --dest-name ${{ inputs.database-name }}_prod --time ${{ steps.date.outputs.date }} --dest-mi ${{ inputs.destination-instance }} --dest-resource-group ${{ inputs.destination-rgp }}
+
+    - name: checkdb ${{ inputs.database-name }}_prod
+      run: sqlcmd -S ${{ inputs.destination-server-name }} -d ${{ inputs.database-name }}_prod -U ${{ secrets.ROCK_DB_USER }} -P '${{ secrets.ROCK_DB_PASSWORD }}' -t 10800 -Q 'dbcc checkdb'
+
+    - name: delete ${{ inputs.database-name }}_prod db
+      run: sqlcmd -S ${{ inputs.destination-server-name }} -d master -U ${{ secrets.ROCK_DB_USER }} -P '${{ secrets.ROCK_DB_PASSWORD }}' -t 120 -Q 'drop database if exists ${{ inputs.database-name }}_prod'
